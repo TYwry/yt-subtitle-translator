@@ -80,12 +80,12 @@
       const next = words[i + 1];
       const end = next ? Math.min(next.s, w.s + 1.5) : w.s + 0.8;
       // 停頓夠久才換句；句子已經很長時，短一點的停頓也換句（自動字幕通常沒有標點）
-      if (cur && (w.s - cur.e > 1.0 || (cur.o.length >= 70 && w.s - cur.e > 0.4))) { cues.push(cur); cur = null; }
+      if (cur && (w.s - cur.e > 1.0 || (cur.o.length >= 40 && w.s - cur.e > 0.4))) { cues.push(cur); cur = null; }
       if (!cur) cur = { s: w.s, e: end, o: '', z: '' };
       cur.o += (cur.o && !cjk.test(w.t[0]) && !/^\s/.test(w.t) ? ' ' : '') + w.t;
       cur.e = end;
       const txt = cur.o.trim();
-      if (txt.length >= 130 || cur.e - cur.s >= 9 || (/[.?!。？！]["'”’」』)）]*$/.test(txt) && cur.e - cur.s >= 1.2)) {
+      if (txt.length >= 70 || cur.e - cur.s >= 6 || (/[.?!。？！]["'”’」』)）]*$/.test(txt) && cur.e - cur.s >= 1.2)) {
         cur.o = txt; cues.push(cur); cur = null;
       }
     }
@@ -286,6 +286,39 @@
     }
   }
 
+  // ───────── 本機助手是舊版（擴充功能更新後還沒重新啟動助手） ─────────
+  const EXT_VERSION = chrome.runtime.getManifest().version;
+  function helperIsOld(v) {
+    if (!v) return true;        // 1.1.1 以前的助手不會回報版本以外的新功能，一律當舊版
+    const a = v.split('.').map(Number), b = EXT_VERSION.split('.').map(Number);
+    for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+    return false;
+  }
+
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let oldHelperShown = false;
+  function remindOldHelper(my, v) {
+    if (oldHelperShown) return;
+    oldHelperShown = true;
+    showCard(`<strong>本機助手需要更新</strong><span>電腦上執行的本機助手是舊版（${esc(v || '1.1.1 或更早')}），擴充功能已經是 ${EXT_VERSION}。重新啟動後才能使用大綱等新功能（進行中的辨識會重新開始）。</span>`, [
+      { text: '立即重新啟動', primary: true, onClick: (el) => restartHelper(el, my) },
+      { text: '稍後', onClick: hideCard },
+    ], 20000);
+  }
+
+  async function restartHelper(el, my) {
+    if (el) { el.disabled = true; el.textContent = '重新啟動中…'; }
+    clearTimeout(cardTimer);
+    const r = await send({ type: 'restartHelper' });
+    if (r && r.ok) {
+      showCard('<strong>本機助手已更新 ✓</strong><span>正在重新準備字幕…</span>', [], 3000);
+      if (my === seq && cur) restart();
+    } else {
+      showCard(`<strong>無法自動重新啟動</strong><span>${esc((r && r.error) || '請在系統匣的「中」圖示按右鍵 →「結束」，再雙擊 start-helper.bat。')}</span>`,
+        [{ text: '知道了', onClick: hideCard }], 20000);
+    }
+  }
+
   // ───────── 主流程：決定字幕來源 ─────────
   const HANT = ['zh-hant', 'zh-tw', 'zh-hk', 'zh-mo'];
   const HANS = ['zh-hans', 'zh-cn', 'zh-sg', 'zh'];
@@ -367,7 +400,9 @@
     if (my !== seq) return;
     cur.helperUp = !!(hs && hs.up);
     cur.hasKey = !!(hs && hs.hasKey);
-    if (cur.helperUp) loadSummary(my);
+    cur.helperOld = cur.helperUp && helperIsOld(hs.version);
+    if (cur.helperOld) remindOldHelper(my, hs.version);
+    else if (cur.helperUp) loadSummary(my);
 
     if (src.type === 'direct') {
       const r = await page('fetchTrack', { videoId: vid, baseUrl: src.track.baseUrl, lang: src.track.lang });
@@ -651,7 +686,10 @@
     pn.sum.addEventListener('click', (e) => {
       const b = e.target.closest('[data-seek]');
       if (b) { seek(+b.dataset.seek); return; }
-      if (e.target.closest('.ytsub-sum-gen')) genSummary();
+      const g = e.target.closest('.ytsub-sum-gen');
+      if (!g) return;
+      if (g.classList.contains('ytsub-sum-restart')) restartHelper(g, seq);
+      else genSummary();
     });
     return pn;
   }
@@ -782,14 +820,15 @@
 
   // ── 大綱 ──
   function summaryReady() {
-    return cur.cues.length > 0 && !['queued', 'downloading', 'transcribing'].includes(cur.jobStatus);
+    // 先讓播放器上的字幕翻完，再整理大綱（兩者共用 Groq 額度，大綱會搶走翻譯的速度）
+    return cur.cues.length > 0 && !['queued', 'downloading', 'transcribing', 'translating'].includes(cur.jobStatus);
   }
 
   function updateSum(pn) {
     const sm = cur.summary || { status: 'none' };
     const ready = summaryReady();
     pn.copy.disabled = sm.status !== 'done';
-    const sig = [cur.vid, settings.targetLang, sm.status, sm.note, sm.error, sm.data && sm.data.created, cur.helperUp, cur.hasKey, ready].join('|');
+    const sig = [cur.vid, settings.targetLang, sm.status, sm.note, sm.error, sm.data && sm.data.created, cur.helperUp, cur.helperOld, cur.hasKey, ready].join('|');
     if (sig !== sumSig) {
       sumSig = sig;
       sumActive = -1;
@@ -829,6 +868,13 @@
       p('大綱由本機助手用你的 Groq 金鑰整理，請先開啟本機助手（雙擊 start-helper.bat）。');
       return box;
     }
+    if (cur.helperOld) {
+      p('電腦上的本機助手是舊版，還沒有大綱功能。重新啟動後就能使用（進行中的辨識會重新開始）。');
+      const b = el('button', 'ytsub-sum-gen ytsub-sum-restart', '重新啟動本機助手');
+      b.type = 'button';
+      box.append(b);
+      return box;
+    }
     if (!cur.hasKey) {
       p('還沒設定 Groq 金鑰：請按 Chrome 工具列的「YT 字幕翻譯」圖示 →「設定」輸入金鑰。');
       return box;
@@ -840,7 +886,7 @@
       return box;
     }
     p(`把整部影片整理成幾個段落：每段有時間、小標題與重點，內容使用${langName(settings.targetLang)}。`);
-    if (!ready) p('字幕準備好之後就能產生大綱。');
+    if (!ready) p('播放器上的字幕翻譯完成後，就能產生大綱。');
     gen('產生大綱', !ready);
     return box;
   }
@@ -904,6 +950,7 @@
     if (my !== seq) return;
     if (!r || !r.ok) {
       if (r && r.down) cur.helperUp = false;
+      if (r && r.status === 404) { cur.helperOld = true; cur.summary = { status: 'none' }; return; }   // 舊版助手沒有大綱功能
       cur.summary = { status: 'error', error: (r && r.error) || '本機助手沒有回應' };
       return;
     }

@@ -102,7 +102,7 @@ class Job:
                     "total": len(self.cues), "translated": done_n, "rev": self.rev, "cues": changed}
 
 
-CACHE_VER = "v4"   # 字幕切法改變時遞增，舊快取就不會再被使用
+CACHE_VER = "v5"   # 字幕切法改變時遞增，舊快取就不會再被使用
 
 
 def cache_path(jid):
@@ -417,6 +417,13 @@ def start_summary(body):
         def prog(msg):
             state["note"] = msg
         try:
+            # 播放器上的字幕優先：還有字幕在辨識或翻譯時先等（共用 Groq 額度），最多等 15 分鐘
+            deadline = time.time() + 900
+            while time.time() < deadline and any(
+                    j.status in ("downloading", "transcribing", "translating") and not j.abandoned()
+                    for j in list(JOBS.values())):
+                prog("等字幕翻譯完成")
+                time.sleep(2)
             data = tl.summarize(key, CFG.get("groq_model") or GROQ_MODELS[0], items, title, target, on_progress=prog)
             data.update({"video_id": vid, "target": target, "created": time.time()})
             os.makedirs(CACHE_DIR, exist_ok=True)
@@ -525,6 +532,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, update_config(body))
             if u.path == "/summary":
                 return self._send(200, start_summary(body))
+            if u.path == "/quit":            # 更新後由啟動器呼叫，結束舊版助手再開新版
+                self._send(200, {"ok": True})
+                threading.Thread(target=quit_now, daemon=True).start()
+                return
+
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)})
@@ -606,6 +618,19 @@ def make_icon(size=64):
     return Image.open(os.path.join(HELPER_DIR, "icon.png")).convert("RGBA").resize((size, size), Image.LANCZOS)
 
 
+TRAY = None
+
+
+def quit_now():
+    time.sleep(0.3)
+    try:
+        if TRAY:
+            TRAY.stop()
+    except Exception:
+        pass
+    os._exit(0)
+
+
 def run_tray(httpd):
     try:
         import pystray
@@ -634,7 +659,9 @@ def run_tray(httpd):
         pystray.MenuItem("開啟資料夾", open_folder),
         pystray.MenuItem("結束", quit_app),
     )
-    pystray.Icon("ytsub-helper", make_icon(), f"{APP_NAME}（執行中）", menu).run()
+    global TRAY
+    TRAY = pystray.Icon("ytsub-helper", make_icon(), f"{APP_NAME}（執行中）", menu)
+    TRAY.run()
 
 
 def update_ytdlp():
@@ -691,7 +718,8 @@ def cleanup_unused():
     # 舊版格式的字幕快取用不到了
     if os.path.isdir(CACHE_DIR):
         for f in os.listdir(CACHE_DIR):
-            if f.endswith(".json") and not f.endswith(f"__{CACHE_VER}.json"):
+            keep = f"__{SUMMARY_VER}.json" if f.startswith("summary__") else f"__{CACHE_VER}.json"   # 大綱快取另外算版本
+            if f.endswith(".json") and not f.endswith(keep):
                 try:
                     os.remove(os.path.join(CACHE_DIR, f))
                 except OSError:

@@ -38,6 +38,46 @@ def is_running(port):
         return False
 
 
+def running_version(port):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/ping", timeout=1.5) as r:
+            j = json.loads(r.read().decode())
+            return j.get("version", "") if j.get("app") == "ytsub-helper" else ""
+    except Exception:
+        return ""
+
+
+def stop_helper(port, token):
+    """結束正在執行的助手：先請它自己結束（1.2.1 起支援），舊版就找出占用這個埠的 server.py 強制結束。"""
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/quit", data=b"{}", method="POST",
+                                     headers={"Content-Type": "application/json", "X-Ytsub-Token": token})
+        urllib.request.urlopen(req, timeout=3).read()
+    except Exception:
+        pass
+    for _ in range(10):
+        if not is_running(port):
+            return True
+        time.sleep(0.3)
+    flags = 0x08000000   # 不跳出黑色視窗
+    out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, creationflags=flags).stdout
+    pids = {ln.split()[-1] for ln in out.splitlines()
+            if "LISTENING" in ln and len(ln.split()) >= 5 and ln.split()[1].endswith(f":{port}")}
+    for pid in pids:
+        if not pid.isdigit():
+            continue
+        cmd = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+                             capture_output=True, text=True, creationflags=flags).stdout
+        if "server.py" in cmd and "python" in cmd.lower():   # 只結束本機助手，不動其他程式
+            subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True, creationflags=flags)
+    for _ in range(10):
+        if not is_running(port):
+            return True
+        time.sleep(0.3)
+    return False
+
+
 def start_helper():
     exe = sys.executable
     if exe.lower().endswith("python.exe"):
@@ -72,6 +112,17 @@ def main():
                     if is_running(port):
                         break
             send_msg({"ok": is_running(port), "port": port, "token": cfg["token"]})
+        elif cmd == "restart":                 # 擴充功能更新後，把還在跑的舊版助手換成新版
+            if is_running(port) and not stop_helper(port, cfg["token"]):
+                send_msg({"ok": False, "error": "無法結束舊版本機助手，請在系統匣的「中」圖示按右鍵 →「結束」，再重新開啟"})
+                return
+            start_helper()
+            for _ in range(40):
+                time.sleep(0.5)
+                port = int(load_config().get("port", 8765))
+                if is_running(port):
+                    break
+            send_msg({"ok": is_running(port), "port": port, "token": cfg["token"], "version": running_version(port)})
         elif cmd == "token":
             send_msg({"ok": True, "port": port, "token": cfg["token"], "running": is_running(port)})
         else:

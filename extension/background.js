@@ -41,7 +41,7 @@ async function ping() {
     const r = await timedFetch(`http://127.0.0.1:${port}/ping`, {}, 1500);
     if (!r.ok) return { up: false };
     const j = await r.json();
-    return j.app === 'ytsub-helper' ? { up: true, model: j.model, hasKey: j.has_key } : { up: false };
+    return j.app === 'ytsub-helper' ? { up: true, model: j.model, hasKey: j.has_key, version: j.version || '' } : { up: false };
   } catch (e) {
     return { up: false };
   }
@@ -76,6 +76,14 @@ async function api(method, path, body, retry = true) {
   return { ok: true, data: j };
 }
 
+// 擴充功能更新後，本機助手可能還在跑舊版：結束它再開新版
+async function restartHelper() {
+  const res = await native('restart');
+  if (res.token) await saveConn(res);
+  if (!res.ok) return { ok: false, nativeMissing: !!res.nativeMissing, error: res.error || '重新啟動失敗' };
+  return { ok: true, version: res.version || '' };
+}
+
 async function startHelper() {
   const res = await native('start');
   if (res.token) await saveConn(res);
@@ -88,6 +96,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       case 'helperStatus': return ping();
       case 'startHelper': return startHelper();
+      case 'restartHelper': return restartHelper();
       case 'createJob': return api('POST', '/jobs', msg.body);
       case 'pollJob': return api('GET', `/jobs/${encodeURIComponent(msg.id)}?since=${msg.since || 0}&pos=${Number(msg.pos) || 0}`);
       case 'startSummary': return api('POST', '/summary', msg.body);

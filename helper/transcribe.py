@@ -184,7 +184,37 @@ def _join(a, b):
     return a + sep + b
 
 
-def segments_to_cues(seg, max_width=150, max_dur=10.0, gap=0.9):
+LINE_WIDTH = 70     # 一則字幕的長度上限（英文約 70 個字母、中日韓約 35 個字），翻譯後在播放器上大多能放進一行
+LINE_DUR = 6.0      # 一則字幕最長幾秒
+
+
+def split_long(s, e, t, max_width=LINE_WIDTH):
+    """太長的字幕切成兩半（遞迴），優先切在逗號、句號等標點後面，其次切在空白處；時間依字數比例分配。"""
+    total = _width(t)
+    if total <= max_width * 1.15:
+        return [(s, e, t)]
+    best, best_score = None, None
+    acc = 0
+    for i, ch in enumerate(t[:-1]):
+        acc += 2 if _CJK.match(ch) else 1
+        nxt = t[i + 1]
+        if not (ch == " " or _CJK.match(ch) or _CJK.match(nxt) or ch in _CLAUSE or ch in _END):
+            continue                       # 不要切在英文單字中間
+        score = abs(acc - total / 2)
+        if ch in _CLAUSE or ch in _END or (ch == " " and t[i - 1:i] in _CLAUSE + _END):
+            score -= total * 0.2           # 標點的地方比較自然
+        if best_score is None or score < best_score:
+            best, best_score = i + 1, score
+    if not best:
+        return [(s, e, t)]
+    a, b = t[:best].strip(), t[best:].strip()
+    if not a or not b:
+        return [(s, e, t)]
+    mid = s + (e - s) * _width(a) / max(1, _width(a) + _width(b))
+    return split_long(s, mid, a, max_width) + split_long(mid, e, b, max_width)
+
+
+def segments_to_cues(seg, max_width=LINE_WIDTH, max_dur=LINE_DUR, gap=0.9):
     """把一段 whisper 結果依「句子」切成字幕：同一個人講的一整句放在同一則（上下兩行才對得起來）。
     停頓超過 gap 秒（通常是換人或換話題）一定切開；句子太長時才切，而且優先切在逗號等子句的地方。
     回傳 [(開始, 結束, 文字)]。"""
@@ -243,7 +273,7 @@ class SentenceMerger:
     標記為換人說話的片段，絕對不會被接在一起。
     feed() 回傳已經是完整句子的字幕 (開始, 結束, 文字)；最後要呼叫 flush() 取出剩下的。"""
 
-    def __init__(self, max_width=150, max_dur=10.0, gap=1.5):
+    def __init__(self, max_width=LINE_WIDTH, max_dur=LINE_DUR, gap=1.5):
         self.max_width, self.max_dur, self.gap = max_width, max_dur, gap
         self.buf = None   # [start, end, text, _]
 
@@ -268,11 +298,11 @@ class SentenceMerger:
             if _ends_sentence(b[2]) or _width(b[2]) >= self.max_width or b[1] - b[0] >= self.max_dur:
                 out.append(tuple(b[:3]))
                 self.buf = None
-        return out
+        return [x for c in out for x in split_long(*c, max_width=self.max_width)]
 
     def flush(self):
         b, self.buf = self.buf, None
-        return [tuple(b[:3])] if b else []
+        return split_long(*b[:3], max_width=self.max_width) if b else []
 
 
 def prepare_cc(items):

@@ -63,6 +63,7 @@ def decide_mode(src, target):
 SYSTEM = """你是專業的影片字幕翻譯。把使用者給的字幕逐行翻成「{target}」。
 規則：
 - 口語、自然、簡潔，{style}；不要逐字硬翻。
+- 字幕要能放進一行：{brevity}。
 - 一行對一行：輸出的編號必須和輸入完全相同，不可合併、拆分或省略任何一行。
 - 每一行的譯文只能包含「那一行原文」的意思：絕對不可以把下一行的內容提前翻到這一行，也不可以把這一行的內容留到下一行。
   即使目標語言的語序不同，也要讓每一行的譯文和同一行的原文意思一一對應（必要時可用較口語的語序或「…」接續）。
@@ -151,7 +152,9 @@ def translate_batch(key, model, lines, context, title, target="zh-Hant", on_wait
     user += "要翻譯的字幕：\n" + json.dumps(numbered, ensure_ascii=False)
     tname = TARGETS.get(target, TARGETS["zh-Hant"])
     style = "像台灣字幕組的翻譯" if target == "zh-Hant" else "像專業字幕組的翻譯"
-    system = SYSTEM.format(target=tname, style=style)
+    brevity = ("每行譯文盡量不超過 25 個字，可省略贅字與語助詞" if target in ("zh-Hant", "zh-Hans")
+               else "keep each line short (about 60 characters or fewer), drop filler words")
+    system = SYSTEM.format(target=tname, style=style, brevity=brevity)
     after = "s2tw" if target == "zh-Hant" else "t2s" if target == "zh-Hans" else ""
     models = [m for m in [model] + GROQ_MODELS if m in GROQ_MODELS or m == model]
     models = list(dict.fromkeys(models))
