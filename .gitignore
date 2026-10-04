@@ -1,0 +1,40 @@
+# ── 金鑰與密碼（絕對不能上傳）──
+config.json
+config.json.*
+.env
+.env.*
+*.key
+*.pem
+*secret*
+*password*
+*credential*
+*apikey*
+
+# ── 個人紀錄 ──
+history.json
+*.log
+*.log.*
+
+# ── 自動產生的檔案 ──
+*.tmp
+dist/
+__pycache__/
+*.pyc
+venv/
+.venv/
+node_modules/
+*.broken
+# 啟動器登記檔：內容是這台電腦的資料夾路徑，執行 start-helper.bat 時會自動重建
+helper/native-host.json
+
+# ── 大型下載與快取 ──
+helper/models/
+helper/cache/
+helper/tmp/
+
+# ── 開發用筆記 ──
+plan.md
+
+# ── 暫存 ──
+.commit-message.txt
+*.bundle

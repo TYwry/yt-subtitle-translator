@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>YT 字幕翻譯</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { width: 320px; padding: 14px; }
+  .stack > * + * { margin-top: 10px; }
+</style>
+</head>
+<body class="stack">
+  <div class="row">
+    <h1><img src="icons/icon32.png" alt="">YT 字幕翻譯</h1>
+    <label class="switch" title="總開關"><input type="checkbox" id="enabled" aria-label="字幕翻譯總開關"><span></span></label>
+  </div>
+
+  <div class="card">
+    <h2>本機助手</h2>
+    <div class="row">
+      <div><span class="dot" id="hDot"></span><span id="hText">檢查中…</span></div>
+      <button id="startHelper" class="primary" hidden>開啟</button>
+    </div>
+    <div id="hMsg" class="msg"></div>
+  </div>
+
+  <div class="row"><a href="#" id="openOptions">設定</a></div>
+<script src="popup.js"></script>
+</body>
+</html>

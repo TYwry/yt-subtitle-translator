@@ -1,0 +1,140 @@
+/* 字幕外觀 */
+#movie_player .ytsub-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--ytsub-bottom, 8%);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 60;
+  opacity: 0;
+  transition: bottom .2s ease, opacity .12s ease;
+}
+#movie_player:not(.ytp-autohide) .ytsub-overlay { bottom: calc(var(--ytsub-bottom, 8%) + 52px); }
+#movie_player .ytsub-overlay.show { opacity: 1; }
+#movie_player .ytsub-box {
+  max-width: 90%;
+  text-align: center;
+  font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", sans-serif;
+}
+#movie_player .ytsub-zh,
+#movie_player .ytsub-orig {
+  display: block;
+  width: fit-content;
+  margin: 0 auto;
+  padding: .12em .5em;
+  border-radius: 6px;
+  background: var(--ytsub-bg, rgba(8, 8, 8, .55));
+  color: #fff;
+  line-height: 1.35;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#movie_player .ytsub-zh {
+  font-size: calc(var(--ytsub-zh-px, 26px) * var(--ytsub-scale, 1));
+  font-weight: 600;
+}
+#movie_player .ytsub-orig {
+  margin-top: 4px;
+  font-size: calc(var(--ytsub-zh-px, 26px) * .66 * var(--ytsub-scale, 1));
+  color: #e8e8e8;
+}
+#movie_player .ytsub-orig.pending { color: #fff; font-size: calc(var(--ytsub-zh-px, 26px) * .85 * var(--ytsub-scale, 1)); }
+#movie_player.ytsub-zh-only .ytsub-orig:not(.pending) { display: none !important; }
+
+/* 有我們的字幕時，隱藏 YouTube 原本的字幕；抓字幕驗證參數的那一瞬間也隱藏 */
+#movie_player.ytsub-hide-native .ytp-caption-window-container,
+html.ytsub-priming .ytp-caption-window-container { display: none !important; }
+
+/* 左上角狀態小標籤 */
+#movie_player .ytsub-status {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 61;
+  max-width: 60%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, .8);
+  color: #fff;
+  font: 500 13px/1.4 "Microsoft JhengHei", "PingFang TC", sans-serif;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity .2s, transform .2s;
+}
+#movie_player .ytsub-status::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+  background: url("chrome-extension://__MSG_@@extension_id__/icons/icon32.png") center / contain no-repeat;
+}
+#movie_player .ytsub-status.show { opacity: 1; transform: none; }
+#movie_player .ytsub-status[data-kind="error"] { background: rgba(160, 30, 25, .92); }
+#movie_player .ytsub-status[data-kind="warn"] { background: rgba(140, 95, 0, .92); }
+#movie_player .ytsub-status[data-kind="ok"] { background: rgba(20, 110, 60, .9); }
+#movie_player.ytp-autohide .ytsub-status[data-kind="info"],
+#movie_player.ytp-autohide .ytsub-status[data-kind="ok"] { opacity: .0; }
+
+/* 右上角提醒卡片 */
+#movie_player .ytsub-card {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 62;
+  width: min(340px, 60%);
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  background: rgba(28, 28, 28, .95);
+  color: #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .45);
+  font: 14px/1.5 "Microsoft JhengHei", "PingFang TC", sans-serif;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity .25s, transform .25s, visibility .25s;
+}
+#movie_player .ytsub-card.show { opacity: 1; visibility: visible; transform: none; }
+#movie_player .ytsub-card-body strong { display: block; margin-bottom: 4px; font-size: 15px; }
+#movie_player .ytsub-card-body span { display: block; color: #ddd; }
+#movie_player .ytsub-card-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+#movie_player .ytsub-card-actions button {
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+#movie_player .ytsub-card-actions button.primary { background: #d93025; border-color: #d93025; font-weight: 600; }
+#movie_player .ytsub-card-actions button:hover { filter: brightness(1.15); }
+#movie_player .ytsub-card-actions button:disabled { opacity: .7; cursor: default; }
+
+/* 控制列上的「中」按鈕 */
+#movie_player .ytsub-btn {
+  position: relative;
+  width: 48px;
+  font: 700 17px/1 "Microsoft JhengHei", "PingFang TC", sans-serif;
+  color: #fff;
+  opacity: .75;
+  text-align: center;
+  vertical-align: top;
+}
+#movie_player .ytsub-btn.on { opacity: 1; }
+#movie_player .ytsub-btn.on::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  right: 13px;
+  bottom: 9px;
+  height: 3px;
+  border-radius: 2px;
+  background: #d93025;
+}

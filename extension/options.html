@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>YT 字幕翻譯 — 設定</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { padding: 28px 16px 60px; }
+  main { max-width: 640px; margin: 0 auto; }
+  main > * + * { margin-top: 18px; }
+  .card .row { flex-wrap: wrap; }
+  .card label.name { font-weight: 600; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field + .field { margin-top: 14px; }
+  .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #groqKey { width: 300px; max-width: 100%; }
+  .preview {
+    margin-top: 12px; padding: 18px 10px; border-radius: 8px; text-align: center;
+    background: linear-gradient(135deg, #3b4a5a, #1d2733);
+  }
+  .preview div { display: block; width: fit-content; margin: 0 auto; padding: .12em .5em; border-radius: 6px; color: #fff; }
+  .preview .pz { font-weight: 600; }
+  .preview .po { margin-top: 4px; color: #e8e8e8; }
+  .disabled-note { display: none; }
+  .helper-off .disabled-note { display: block; }
+  .helper-off .needs-helper { opacity: .5; pointer-events: none; }
+  /* 清除快取的確認視窗 */
+  dialog { border: 1px solid var(--line); border-radius: 12px; padding: 20px; max-width: 380px; background: var(--bg); color: var(--text); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h3 { margin: 0 0 8px; font-size: 16px; }
+  dialog p { margin: 0 0 16px; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 10px; }
+  button.cancel { font-weight: 600; border-color: var(--text); }
+  button.danger { background: #c5221f; border-color: #c5221f; color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1><img src="icons/icon32.png" alt="">YT 字幕翻譯 — 設定</h1>
+
+  <section class="card">
+    <h2>語言</h2>
+    <div class="field">
+      <label class="name" for="targetLang">第一語言（翻譯成這個語言，大字顯示）</label>
+      <select id="targetLang">
+        <option value="zh-Hant">繁體中文</option>
+        <option value="zh-Hans">簡體中文</option>
+        <option value="en">英文 English</option>
+        <option value="hi">印地語 हिन्दी</option>
+        <option value="es">西班牙語 Español</option>
+        <option value="ar">阿拉伯語 العربية</option>
+        <option value="fr">法語 Français</option>
+        <option value="bn">孟加拉語 বাংলা</option>
+        <option value="pt">葡萄牙語 Português</option>
+        <option value="ru">俄語 Русский</option>
+        <option value="id">印尼語 Bahasa Indonesia</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="name" for="sourceLang">原文（影片說的語言）</label>
+      <select id="sourceLang">
+        <option value="auto">自動偵測</option>
+        <option value="en">英文 English</option>
+        <option value="zh">中文（普通話）</option>
+        <option value="hi">印地語 हिन्दी</option>
+        <option value="es">西班牙語 Español</option>
+        <option value="ar">阿拉伯語 العربية</option>
+        <option value="fr">法語 Français</option>
+        <option value="bn">孟加拉語 বাংলা</option>
+        <option value="pt">葡萄牙語 Português</option>
+        <option value="ru">俄語 Русский</option>
+        <option value="id">印尼語 Bahasa Indonesia</option>
+      </select>
+      <span class="muted">列出全球使用人數最多的前十種語言。偵測錯誤時（例如明明說英文卻出現別的語言），請在這裡直接指定。選「自動偵測」時，會先參考 YouTube 標示的影片原音語言。</span>
+    </div>
+    <div class="field">
+      <label class="name" for="bottom">字幕離下緣的距離</label>
+      <div class="inline"><input type="range" id="bottom" min="2" max="40" step="1"><span id="bottomVal" class="muted"></span></div>
+    </div>
+    <div class="field">
+      <label class="name" for="bgOpacity">字幕底色深淺</label>
+      <div class="inline"><input type="range" id="bgOpacity" min="0" max="90" step="5"><span id="bgVal" class="muted"></span></div>
+    </div>
+    <div class="preview" aria-hidden="true">
+      <div class="pz">這是第一語言字幕的預覽</div>
+      <div class="po">This is a preview of the original line</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>本機助手未開啟時的提醒</h2>
+    <div class="field">
+      <label class="name" for="remind">提醒時機</label>
+      <select id="remind">
+        <option value="always">每次播放影片都提醒</option>
+        <option value="nocc">只在影片沒有 CC 字幕時提醒</option>
+        <option value="never">不要提醒</option>
+      </select>
+      <span class="muted">提醒卡片上按「這次先不用」後，到關閉 Chrome 前都不會再提醒。</span>
+    </div>
+  </section>
+
+  <section class="card" id="helperCard">
+    <h2>本機助手</h2>
+    <div class="row">
+      <div><span class="dot" id="hDot"></span><span id="hText">檢查中…</span></div>
+      <button id="startHelper" class="primary" hidden>開啟本機助手</button>
+    </div>
+    <div class="muted disabled-note" style="margin-top:8px">以下設定存在本機助手裡，需要先開啟本機助手才能修改。</div>
+    <div id="hModel" class="muted" style="margin-top:6px"></div>
+
+    <div class="needs-helper" style="margin-top:16px">
+      <div class="field">
+        <label class="name" for="groqKey">Groq 金鑰（用來翻譯）</label>
+        <div class="inline">
+          <input type="password" id="groqKey" autocomplete="off" spellcheck="false" aria-describedby="keyHelp">
+          <button id="saveKey">儲存金鑰</button>
+        </div>
+        <span class="muted" id="keyHelp">目前狀態：<b id="keyState">—</b>。到 <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> 免費申請。金鑰只會加密存在你這台電腦上。</span>
+        <span id="keyMsg" class="msg"></span>
+      </div>
+      <div class="field">
+        <label class="name" for="groqModel">翻譯模型</label>
+        <select id="groqModel"></select>
+        <span class="muted">預設 openai/gpt-oss-120b；額度用完時會自動改用其他模型。</span>
+      </div>
+      <div class="field">
+        <label class="name" for="cacheDays">字幕快取保留天數</label>
+        <div class="inline">
+          <select id="cacheDays">
+            <option value="7">7 天</option>
+            <option value="30">30 天</option>
+            <option value="90">90 天</option>
+            <option value="0">永久保留</option>
+          </select>
+          <button id="clearCache">清除所有快取</button>
+        </div>
+        <span class="muted">看過的影片字幕會存起來，再看一次直接載入。</span>
+      </div>
+      <div class="field">
+        <div class="inline">
+          <label class="switch"><input type="checkbox" id="autostart" aria-label="開機時自動啟動本機助手"><span></span></label>
+          <label class="name" for="autostart">開機時自動啟動本機助手</label>
+        </div>
+      </div>
+      <span id="cfgMsg" class="msg"></span>
+    </div>
+  </section>
+</main>
+<dialog id="clearDlg" aria-labelledby="clearTitle">
+  <h3 id="clearTitle">清除所有字幕快取？</h3>
+  <p id="clearText"></p>
+  <div class="actions">
+    <button id="clearCancel" class="cancel" autofocus>取消</button>
+    <button id="clearOk" class="danger">刪除</button>
+  </div>
+</dialog>
+<script src="options.js"></script>
+</body>
+</html>

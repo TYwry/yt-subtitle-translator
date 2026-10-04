@@ -1,0 +1,5 @@
+faster-whisper>=1.1,<2
+yt-dlp[default,deno]
+opencc-python-reimplemented>=0.1.7
+pystray>=0.19
+pillow>=10
