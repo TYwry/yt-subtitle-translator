@@ -165,12 +165,17 @@
 
   // ───────── 依播放時間顯示字幕 ─────────
   let lastShown = null;
-  function findCue(cues, t) {
+  // 最後一句「已經開始」的字幕位置（都還沒開始就是 -1）
+  function lastStarted(cues, t) {
     let lo = 0, hi = cues.length - 1, ans = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       if (cues[mid].s <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
     }
+    return ans;
+  }
+  function findCue(cues, t) {
+    const ans = lastStarted(cues, t);
     for (let i = ans; i >= 0 && i > ans - 3; i--) if (t < cues[i].e) return cues[i];
     return null;
   }
@@ -213,7 +218,7 @@
     u.orig.classList.toggle('pending', !zh && !!orig);
     u.overlay.classList.toggle('show', !!(zh || orig));
   }
-  setInterval(render, 100);
+  setInterval(() => { render(); updatePanel(); }, 100);
 
   // ───────── 提醒卡片 ─────────
   let cardTimer = null;
@@ -337,7 +342,7 @@
   async function start(vid, keepForce = false) {
     const my = ++seq;
     const force = keepForce && cur && cur.vid === vid ? cur.forceAsr : false;
-    cur = { vid, cues: [], single: false, hideNative: false, source: '', forceAsr: force, helperUp: false, jobStatus: '', statusText: '', hasCC: false, canForceAsr: false };
+    cur = { vid, cues: [], single: false, hideNative: false, source: '', forceAsr: force, helperUp: false, hasKey: false, jobStatus: '', statusText: '', hasCC: false, canForceAsr: false, summary: { status: 'none' } };
     lastShown = null;
     hideCard();
     setStatus('');
@@ -361,6 +366,8 @@
     const hs = await send({ type: 'helperStatus' });
     if (my !== seq) return;
     cur.helperUp = !!(hs && hs.up);
+    cur.hasKey = !!(hs && hs.hasKey);
+    if (cur.helperUp) loadSummary(my);
 
     if (src.type === 'direct') {
       const r = await page('fetchTrack', { videoId: vid, baseUrl: src.track.baseUrl, lang: src.track.lang });
@@ -507,6 +514,417 @@
     return snap.rev || rev;
   }
 
+  // ───────── 右側面板：字幕列表＋大綱摘要 ─────────
+  const panelState = { tab: 'subs', collapsed: false };
+  let panel = null;
+  let panelSig = '';         // 字幕列表的組成（換影片、句數、顯示方式）改變時整個重畫
+  let sumSig = '';
+  let panelActive = -1;
+  let sumActive = -1;
+  let lastPanelAt = 0;
+  let userScrollUntil = 0;   // 使用者自己捲動字幕列表時，暫停自動捲動到這個時間
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const ss = String(s).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+  }
+
+  function seek(t) {
+    const v = video();
+    if (v && Number.isFinite(t)) v.currentTime = Math.max(0, t);
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  async function copyText(text, btn) {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch (e) {
+      const ta = el('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+      document.body.append(ta);
+      ta.select();
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      ta.remove();
+    }
+    if (!btn) return;
+    clearTimeout(btn._t);
+    btn.classList.toggle('done', ok);
+    if (btn.dataset.label) btn.textContent = ok ? '已複製 ✓' : '複製失敗';
+    btn._t = setTimeout(() => {
+      btn.classList.remove('done');
+      if (btn.dataset.label) btn.textContent = btn.dataset.label;
+    }, 1500);
+  }
+
+  function savePanelState() {
+    chrome.storage.local.set({ panelTab: panelState.tab, panelCollapsed: panelState.collapsed });
+  }
+
+  function panelHost() {
+    const sec = document.querySelector('ytd-watch-flexy #secondary-inner') || document.querySelector('ytd-watch-flexy #secondary');
+    if (sec && sec.offsetWidth > 0) return { host: sec, first: true };
+    // 視窗太窄時 YouTube 不顯示右側欄：改放在影片標題下方的區塊最上面
+    const below = document.querySelector('ytd-watch-flexy #below');
+    return below ? { host: below, first: true } : null;
+  }
+
+  function buildPanel() {
+    const root = el('section', 'ytsub-panel');
+    root.setAttribute('aria-label', 'YT 字幕翻譯：字幕與大綱');
+    root.innerHTML = `
+      <div class="ytsub-p-head">
+        <div class="ytsub-p-tabs" role="tablist">
+          <button type="button" role="tab" data-tab="subs">字幕</button>
+          <button type="button" role="tab" data-tab="sum">大綱</button>
+        </div>
+        <span class="ytsub-p-lang"></span>
+        <button type="button" class="ytsub-p-copy" data-label="複製全部">複製全部</button>
+        <button type="button" class="ytsub-p-fold"></button>
+      </div>
+      <div class="ytsub-p-body">
+        <div class="ytsub-p-scroll ytsub-p-subs" tabindex="0" aria-label="字幕列表">
+          <div class="ytsub-p-empty"></div>
+          <div class="ytsub-p-list"></div>
+        </div>
+        <button type="button" class="ytsub-p-resume">回到目前播放位置</button>
+        <div class="ytsub-p-scroll ytsub-p-sum" aria-label="大綱摘要"></div>
+      </div>`;
+    const q = (s) => root.querySelector(s);
+    const pn = {
+      root, tabs: [...root.querySelectorAll('[role=tab]')], lang: q('.ytsub-p-lang'), copy: q('.ytsub-p-copy'),
+      fold: q('.ytsub-p-fold'), subs: q('.ytsub-p-subs'), empty: q('.ytsub-p-empty'), list: q('.ytsub-p-list'),
+      resume: q('.ytsub-p-resume'), sum: q('.ytsub-p-sum'), items: [],
+    };
+    // 面板裡的按鍵不要被 YouTube 當成快捷鍵（例如空白鍵暫停、方向鍵快轉）
+    root.addEventListener('keydown', (e) => e.stopPropagation());
+    for (const t of pn.tabs) {
+      t.addEventListener('click', () => {
+        panelState.tab = t.dataset.tab;
+        panelState.collapsed = false;
+        savePanelState();
+        sumSig = '';
+        panelActive = -1;
+        updatePanel(true);
+      });
+    }
+    pn.fold.addEventListener('click', () => {
+      panelState.collapsed = !panelState.collapsed;
+      savePanelState();
+      panelActive = -1;
+      updatePanel(true);
+    });
+    pn.copy.addEventListener('click', () => {
+      const text = panelState.tab === 'sum' ? summaryText() : subsText();
+      if (text) copyText(text, pn.copy);
+    });
+    // 使用者自己捲動時，先暫停自動捲動
+    const pause = () => { userScrollUntil = Date.now() + 5000; };
+    for (const ev of ['wheel', 'touchmove', 'pointerdown']) pn.subs.addEventListener(ev, pause, { passive: true });
+    pn.subs.addEventListener('keydown', (e) => { if (/Arrow|Page|Home|End|^ $/.test(e.key)) pause(); });
+    pn.resume.addEventListener('click', () => { userScrollUntil = 0; panelActive = -1; updatePanel(true); });
+    pn.list.addEventListener('click', (e) => {
+      const line = e.target.closest('.ytsub-line');
+      if (!line || !cur) return;
+      const c = cur.cues[+line.dataset.i];
+      if (!c) return;
+      const btn = e.target.closest('.ytsub-line-copy');
+      if (btn) {
+        e.stopPropagation();
+        const it = pn.items[+line.dataset.i];
+        copyText([it.z, it.o].filter(Boolean).join('\n'), btn);
+        return;
+      }
+      userScrollUntil = 0;
+      seek(c.s);
+    });
+    pn.sum.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-seek]');
+      if (b) { seek(+b.dataset.seek); return; }
+      if (e.target.closest('.ytsub-sum-gen')) genSummary();
+    });
+    return pn;
+  }
+
+  function ensurePanel() {
+    if (!settings.enabled || location.pathname !== '/watch' || !cur) {
+      if (panel) panel.root.remove();
+      return null;
+    }
+    const h = panelHost();
+    if (!h) return null;
+    if (!panel) panel = buildPanel();
+    if (panel.root.parentNode !== h.host) {
+      h.host.prepend(panel.root);
+      panelActive = -1;
+    }
+    return panel;
+  }
+
+  // 每句要顯示的兩行：翻譯（大字）＋原文（小字），規則跟播放器上的字幕一樣
+  function lineTexts(c, zhOnly) {
+    const z = (c.z || '').trim();
+    if (z) return { z, o: zhOnly ? '' : (c.o || '').trim() };
+    return { z: '', o: (c.o || '').trim() };
+  }
+
+  function updatePanel(force) {
+    const now = Date.now();
+    if (!force && now - lastPanelAt < 250) return;
+    lastPanelAt = now;
+    const pn = ensurePanel();
+    if (!pn) return;
+    pn.root.classList.toggle('collapsed', panelState.collapsed);
+    for (const t of pn.tabs) t.setAttribute('aria-selected', String(t.dataset.tab === panelState.tab));
+    const foldLabel = panelState.collapsed ? '展開面板' : '收合面板';
+    pn.fold.textContent = panelState.collapsed ? '▸' : '▾';
+    pn.fold.title = foldLabel;
+    pn.fold.setAttribute('aria-label', foldLabel);
+    pn.fold.setAttribute('aria-expanded', String(!panelState.collapsed));
+    pn.lang.textContent = langName(settings.targetLang);
+    const isSubs = panelState.tab === 'subs';
+    pn.subs.hidden = !isSubs;
+    pn.sum.hidden = isSubs;
+    if (!isSubs) pn.resume.classList.remove('show');
+    if (panelState.collapsed) return;
+    if (isSubs) updateSubs(pn); else updateSum(pn);
+  }
+
+  function updateSubs(pn) {
+    const cues = cur.cues;
+    const zhOnly = cur.single || settings.display === 'zh';
+    pn.copy.disabled = !cues.length;
+    if (!cues.length) {
+      pn.empty.textContent = cur.statusText || '正在準備字幕…';
+      pn.empty.hidden = false;
+      if (panelSig) { pn.list.textContent = ''; pn.items = []; panelSig = ''; }
+      pn.resume.classList.remove('show');
+      return;
+    }
+    pn.empty.hidden = true;
+    const sig = `${cur.vid}|${cues.length}|${zhOnly}`;
+    if (sig !== panelSig) {
+      panelSig = sig;
+      panelActive = -1;
+      pn.list.textContent = '';
+      pn.items = [];
+      const frag = document.createDocumentFragment();
+      cues.forEach((c, i) => {
+        const line = el('div', 'ytsub-line');
+        line.dataset.i = i;
+        const time = el('span', 'ytsub-line-time', fmtTime(c.s));
+        const tx = el('div', 'ytsub-line-text');
+        const z = el('div', 'ytsub-line-z');
+        const o = el('div', 'ytsub-line-o');
+        z.dir = 'auto';
+        o.dir = 'auto';
+        tx.append(z, o);
+        const cp = el('button', 'ytsub-line-copy', '⧉');
+        cp.type = 'button';
+        cp.title = '複製這句';
+        cp.setAttribute('aria-label', '複製這句');
+        line.append(time, tx, cp);
+        frag.append(line);
+        pn.items.push({ line, zEl: z, oEl: o, z: null, o: null });
+      });
+      pn.list.append(frag);
+    }
+    // 翻譯陸續完成時，只更新有變的句子
+    cues.forEach((c, i) => {
+      const it = pn.items[i];
+      const t = lineTexts(c, zhOnly);
+      if (t.z === it.z && t.o === it.o) return;
+      it.z = t.z;
+      it.o = t.o;
+      it.zEl.textContent = t.z;
+      it.oEl.textContent = t.o;
+      it.zEl.hidden = !t.z;
+      it.oEl.hidden = !t.o;
+      it.line.classList.toggle('pending', !t.z);
+    });
+    const v = video();
+    const idx = v ? lastStarted(cues, v.currentTime) : -1;
+    const paused = Date.now() < userScrollUntil;
+    pn.resume.classList.toggle('show', paused && idx >= 0);
+    if (idx === panelActive && !(panelActive >= 0 && !paused && pn.needScroll)) return;
+    if (pn.items[panelActive]) pn.items[panelActive].line.classList.remove('active');
+    panelActive = idx;
+    const cur2 = pn.items[idx];
+    if (!cur2) return;
+    cur2.line.classList.add('active');
+    pn.needScroll = paused;     // 暫停期間換句：恢復自動捲動後要補捲一次
+    if (!paused) {
+      const box = pn.subs;
+      const top = cur2.line.offsetTop - box.clientHeight / 2 + cur2.line.offsetHeight / 2;
+      box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+  }
+
+  function subsText() {
+    if (!cur || !cur.cues.length) return '';
+    const zhOnly = cur.single || settings.display === 'zh';
+    const out = cur.cues.map((c) => {
+      const t = lineTexts(c, zhOnly);
+      return `[${fmtTime(c.s)}] ${t.z || t.o}` + (t.z && t.o ? `\n${t.o}` : '');
+    });
+    return (cur.title ? cur.title + '\n\n' : '') + out.join(zhOnly ? '\n' : '\n\n');
+  }
+
+  // ── 大綱 ──
+  function summaryReady() {
+    return cur.cues.length > 0 && !['queued', 'downloading', 'transcribing'].includes(cur.jobStatus);
+  }
+
+  function updateSum(pn) {
+    const sm = cur.summary || { status: 'none' };
+    const ready = summaryReady();
+    pn.copy.disabled = sm.status !== 'done';
+    const sig = [cur.vid, settings.targetLang, sm.status, sm.note, sm.error, sm.data && sm.data.created, cur.helperUp, cur.hasKey, ready].join('|');
+    if (sig !== sumSig) {
+      sumSig = sig;
+      sumActive = -1;
+      pn.sum.textContent = '';
+      if (sm.status === 'done' && sm.data) renderSummary(pn.sum, sm.data);
+      else pn.sum.append(summaryMessage(sm, ready));
+    }
+    if (sm.status !== 'done') return;
+    // 目前播放到的段落加上標示
+    const v = video();
+    const cards = pn.sum.querySelectorAll('.ytsub-sec');
+    const t = v ? v.currentTime : 0;
+    let idx = -1;
+    cards.forEach((c, i) => { if (+c.dataset.s <= t + 0.5) idx = i; });
+    if (idx === sumActive) return;
+    if (cards[sumActive]) cards[sumActive].classList.remove('active');
+    sumActive = idx;
+    if (cards[idx]) cards[idx].classList.add('active');
+  }
+
+  function summaryMessage(sm, ready) {
+    const box = el('div', 'ytsub-sum-msg');
+    const p = (t) => box.append(el('p', '', t));
+    const gen = (text, disabled) => {
+      const b = el('button', 'ytsub-sum-gen', text);
+      b.type = 'button';
+      b.disabled = !!disabled;
+      box.append(b);
+    };
+    if (sm.status === 'running') {
+      box.classList.add('busy');
+      p('大綱整理中' + (sm.note ? `：${sm.note}` : '…'));
+      p('長影片會分段整理，需要一點時間。整理好會存在電腦裡，下次打開這部影片就直接顯示。');
+      return box;
+    }
+    if (!cur.helperUp) {
+      p('大綱由本機助手用你的 Groq 金鑰整理，請先開啟本機助手（雙擊 start-helper.bat）。');
+      return box;
+    }
+    if (!cur.hasKey) {
+      p('還沒設定 Groq 金鑰：請按 Chrome 工具列的「YT 字幕翻譯」圖示 →「設定」輸入金鑰。');
+      return box;
+    }
+    if (sm.status === 'error') {
+      box.classList.add('error');
+      p('產生大綱失敗：' + (sm.error || '未知錯誤'));
+      gen('再試一次', !ready);
+      return box;
+    }
+    p(`把整部影片整理成幾個段落：每段有時間、小標題與重點，內容使用${langName(settings.targetLang)}。`);
+    if (!ready) p('字幕準備好之後就能產生大綱。');
+    gen('產生大綱', !ready);
+    return box;
+  }
+
+  function renderSummary(box, data) {
+    if (data.overview) {
+      const ov = el('div', 'ytsub-sum-ov');
+      ov.append(el('div', 'ytsub-sum-label', '總覽'), el('p', '', data.overview));
+      box.append(ov);
+    }
+    const ol = el('ol', 'ytsub-sum-list');
+    for (const s of data.sections || []) {
+      const li = el('li', 'ytsub-sec');
+      li.dataset.s = s.start;
+      const tb = el('button', 'ytsub-sec-time', fmtTime(s.start));
+      tb.type = 'button';
+      tb.dataset.seek = s.start;
+      tb.title = '跳到 ' + fmtTime(s.start);
+      const body = el('div', 'ytsub-sec-body');
+      const title = el('button', 'ytsub-sec-title', s.title || fmtTime(s.start));
+      title.type = 'button';
+      title.dataset.seek = s.start;
+      body.append(title);
+      if (s.points && s.points.length) {
+        const ul = el('ul', 'ytsub-sec-points');
+        for (const pt of s.points) ul.append(el('li', '', pt));
+        body.append(ul);
+      }
+      li.append(tb, body);
+      ol.append(li);
+    }
+    box.append(ol);
+  }
+
+  function summaryText() {
+    const d = cur && cur.summary && cur.summary.data;
+    if (!d) return '';
+    let out = cur.title ? cur.title + '\n\n' : '';
+    if (d.overview) out += `總覽：${d.overview}\n\n`;
+    out += (d.sections || []).map((s) => `[${fmtTime(s.start)}] ${s.title}` + (s.points || []).map((p) => `\n  • ${p}`).join('')).join('\n\n');
+    return out;
+  }
+
+  // 開影片時看看有沒有做好的大綱（或正在整理中的）
+  async function loadSummary(my) {
+    const r = await send({ type: 'getSummary', vid: cur.vid, target: settings.targetLang });
+    if (my !== seq || !r || !r.ok) return;
+    pollSummary(my, r.data);
+  }
+
+  async function genSummary() {
+    if (!cur || !summaryReady()) return;
+    const my = seq;
+    cur.summary = { status: 'running', note: '準備中' };
+    updatePanel(true);
+    const body = {
+      video_id: cur.vid, target: settings.targetLang, title: cur.title || '',
+      cues: cur.cues.map((c) => ({ s: c.s, t: (c.o || c.z || '').trim() })).filter((c) => c.t),
+    };
+    const r = await send({ type: 'startSummary', body });
+    if (my !== seq) return;
+    if (!r || !r.ok) {
+      if (r && r.down) cur.helperUp = false;
+      cur.summary = { status: 'error', error: (r && r.error) || '本機助手沒有回應' };
+      return;
+    }
+    pollSummary(my, r.data);
+  }
+
+  async function pollSummary(my, st) {
+    let fails = 0;
+    for (;;) {
+      if (my !== seq || !cur) return;
+      cur.summary = st || { status: 'none' };
+      if (cur.summary.status !== 'running') return;
+      await sleep(2000);
+      if (my !== seq || !cur) return;
+      const r = await send({ type: 'getSummary', vid: cur.vid, target: settings.targetLang });
+      if (my !== seq) return;
+      if (r && r.ok) { st = r.data; fails = 0; continue; }
+      if (++fails >= 5) { st = { status: 'error', error: '本機助手沒有回應，可能已被關閉' }; }
+    }
+  }
+
   // ───────── 偵測換影片 ─────────
   function currentVid() {
     if (location.pathname !== '/watch') return null;
@@ -524,8 +942,10 @@
   setInterval(checkNav, 1000);
 
   // ───────── 設定 ─────────
-  chrome.storage.local.get(Object.keys(DEFAULTS), (s) => {
+  chrome.storage.local.get([...Object.keys(DEFAULTS), 'panelTab', 'panelCollapsed'], (s) => {
     settings = { ...DEFAULTS, ...s };
+    if (s.panelTab === 'sum') panelState.tab = 'sum';
+    panelState.collapsed = !!s.panelCollapsed;
     applyStyle();
     checkNav();
   });
@@ -535,6 +955,7 @@
     for (const k of Object.keys(DEFAULTS)) if (ch[k]) settings[k] = ch[k].newValue;
     applyStyle();
     lastShown = null;
+    panelSig = '';
     if ((ch.targetLang || ch.sourceLang) && settings.enabled && cur) start(cur.vid, true);
     if (ch.enabled && settings.enabled !== wasEnabled) {
       if (settings.enabled) { if (cur) start(cur.vid, true); else checkNav(); }

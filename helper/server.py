@@ -358,6 +358,84 @@ def create_job(body):
     return job
 
 
+# ───────────────────────── 大綱摘要 ─────────────────────────
+SUMMARIES = {}                 # 「影片__語言」→ {status: running/done/error, note, data, error}
+SUMMARY_VER = "v1"
+
+
+def summary_path(vid, target):
+    return os.path.join(CACHE_DIR, f"summary__{vid}__{target}__{SUMMARY_VER}.json")
+
+
+def summary_args(src):
+    vid = str(src.get("video_id", ""))
+    target = str(src.get("target") or "zh-Hant")
+    if not tr.VIDEO_ID_RE.match(vid) or target not in tl.TARGETS:
+        raise ValueError("參數不正確")
+    return vid, target
+
+
+def get_summary(vid, target):
+    with JOBS_LOCK:
+        s = SUMMARIES.get(f"{vid}__{target}")
+        if s:
+            return dict(s)
+    data = load_json(summary_path(vid, target), None)
+    if data and data.get("sections"):
+        return {"status": "done", "data": data}
+    return {"status": "none"}
+
+
+def start_summary(body):
+    vid, target = summary_args(body)
+    cur = get_summary(vid, target)
+    if cur["status"] in ("running", "done"):
+        return cur
+    key = groq_key()
+    if not key:
+        raise ValueError("還沒設定 Groq 金鑰，請到擴充功能的設定頁輸入")
+    cues = body.get("cues") or []
+    if not isinstance(cues, list) or len(cues) > 8000:
+        raise ValueError("字幕太多或格式不正確")
+    items = []
+    for c in cues:
+        try:
+            t = str(c.get("t", "")).strip()[:500]
+            if t:
+                items.append((float(c["s"]), t))
+        except (TypeError, ValueError, KeyError, AttributeError):
+            continue
+    if not items:
+        raise ValueError("沒有字幕可以整理")
+    title = str(body.get("title", ""))[:200]
+    k = f"{vid}__{target}"
+    state = {"status": "running", "note": "準備中"}
+    with JOBS_LOCK:
+        SUMMARIES[k] = state
+
+    def run():
+        def prog(msg):
+            state["note"] = msg
+        try:
+            data = tl.summarize(key, CFG.get("groq_model") or GROQ_MODELS[0], items, title, target, on_progress=prog)
+            data.update({"video_id": vid, "target": target, "created": time.time()})
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            save_json(summary_path(vid, target), data)
+            state.update(status="done", data=data, note="")
+        except Exception as e:
+            log.warning("summary failed: %s", e)
+            state.update(status="error", error=str(e)[:300] or "產生大綱失敗", note="")
+        finally:
+            with JOBS_LOCK:          # 只在記憶體留著「進行中」的狀態；完成或失敗後改從快取檔讀（失敗可以再按一次）
+                if state["status"] == "done":
+                    SUMMARIES.pop(k, None)
+                elif len(SUMMARIES) > 50:
+                    SUMMARIES.pop(next(iter(SUMMARIES)), None)
+
+    threading.Thread(target=run, daemon=True).start()
+    return dict(state)
+
+
 # ───────────────────────── HTTP ─────────────────────────
 class Handler(BaseHTTPRequestHandler):
     server_version = "ytsub-helper"
@@ -425,6 +503,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, snap)
         if u.path == "/config":
             return self._send(200, public_config())
+        if u.path == "/summary":
+            q = parse_qs(u.query)
+            try:
+                vid, target = summary_args({"video_id": q.get("video_id", [""])[0], "target": q.get("target", [""])[0]})
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+            return self._send(200, get_summary(vid, target))
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -438,6 +523,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, job.snapshot(0))
             if u.path == "/config":
                 return self._send(200, update_config(body))
+            if u.path == "/summary":
+                return self._send(200, start_summary(body))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)})
@@ -454,7 +541,7 @@ def public_config():
 
 def cache_count():
     try:
-        return sum(1 for f in os.listdir(CACHE_DIR) if f.endswith(".json"))
+        return sum(1 for f in os.listdir(CACHE_DIR) if f.endswith(".json") and not f.startswith("summary__"))
     except OSError:
         return 0
 

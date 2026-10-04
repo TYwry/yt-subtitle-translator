@@ -90,6 +90,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'startHelper': return startHelper();
       case 'createJob': return api('POST', '/jobs', msg.body);
       case 'pollJob': return api('GET', `/jobs/${encodeURIComponent(msg.id)}?since=${msg.since || 0}&pos=${Number(msg.pos) || 0}`);
+      case 'startSummary': return api('POST', '/summary', msg.body);
+      case 'getSummary': return api('GET', `/summary?video_id=${encodeURIComponent(msg.vid)}&target=${encodeURIComponent(msg.target)}`);
       case 'getConfig': return api('GET', '/config');
       case 'setConfig': return api('POST', '/config', msg.body);
       case 'dismissReminder':

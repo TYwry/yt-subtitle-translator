@@ -8,7 +8,7 @@ import secrets
 import sys
 
 APP_NAME = "YT 字幕助手"
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 HELPER_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(HELPER_DIR)
 CONFIG_PATH = os.path.join(HELPER_DIR, "config.json")
