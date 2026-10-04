@@ -36,9 +36,12 @@
 
 ### 步驟 1：安裝 Python（已經裝過可以跳過）
 
-1. 打開 <https://www.python.org/downloads/>，按黃色的「Download Python 3.12…」按鈕下載。
-2. 執行下載的安裝檔。**第一個畫面最下面的「Add python.exe to PATH」一定要打勾**，再按「Install Now」。
-3. 裝好後按「Close」。
+**不確定有沒有裝過？** 按鍵盤的 `Windows 鍵`，輸入 `cmd` 按 Enter，在黑色視窗輸入 `python --version` 按 Enter：出現「Python 3.10」以上的數字就是裝過了，可以跳到步驟 2；出現其他訊息或跳出 Microsoft Store，就照下面安裝。
+
+1. **[按這裡下載 Python 3.12 安裝檔（python-3.12.0-amd64.exe，約 25 MB）](../../releases/download/v1.2.1/python-3.12.0-amd64.exe)**。這是 Python 官方的安裝檔，原封不動放在這裡方便下載；也可以到官方網站 <https://www.python.org/downloads/windows/> 自己找「Python 3.12」的「Windows installer (64-bit)」。
+2. 雙擊下載好的 `python-3.12.0-amd64.exe`。如果跳出「是否允許此應用程式變更你的裝置」，按「是」。
+3. 安裝畫面出現後，**先把最下面的「Add python.exe to PATH」打勾**（沒勾的話之後會找不到 Python），再按上面的「**Install Now**」。
+4. 等進度條跑完，出現「Setup was successful」後按「Close」。
 
 ### 步驟 2：安裝並啟動本機助手
 
