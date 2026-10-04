@@ -9,7 +9,7 @@ if not exist ".venv\ytsub-ok.txt" (
 ".venv\Scripts\python.exe" setup_native.py
 start "" ".venv\Scripts\pythonw.exe" "%~dp0helper\server.py"
 echo.
-echo 本機助手已在背景啟動：螢幕右下角系統匣會出現紅色「中」圖示。
+echo 本機助手已在背景啟動：螢幕右下角系統匣會出現紅色「T」字樣圖示。
 echo 這個視窗 5 秒後自動關閉。
 timeout /t 5 >nul
 exit /b 0

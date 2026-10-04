@@ -314,7 +314,7 @@
       showCard('<strong>本機助手已更新 ✓</strong><span>正在重新準備字幕…</span>', [], 3000);
       if (my === seq && cur) restart();
     } else {
-      showCard(`<strong>無法自動重新啟動</strong><span>${esc((r && r.error) || '請在系統匣的「中」圖示按右鍵 →「結束」，再雙擊 start-helper.bat。')}</span>`,
+      showCard(`<strong>無法自動重新啟動</strong><span>${esc((r && r.error) || '請在系統匣的紅色「T」圖示按右鍵 →「結束」，再雙擊 start-helper.bat。')}</span>`,
         [{ text: '知道了', onClick: hideCard }], 20000);
     }
   }

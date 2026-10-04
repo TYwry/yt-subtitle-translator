@@ -8,6 +8,10 @@ import time
 
 from common import OWN_MODEL_DIR, ascii_path, TMP_DIR, VOICETYPE_DIR, log
 
+# 下載語音模型用一般的下載方式（新版的 Xet 下載方式在部分 Windows 電腦上會卡住不動）
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 # 「原文」可以指定的語言（全球使用人口最多的前十種）；空白 = 自動偵測
 WHISPER_LANGS = {"en", "zh", "hi", "es", "ar", "fr", "bn", "pt", "ru", "id"}

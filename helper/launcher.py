@@ -114,7 +114,7 @@ def main():
             send_msg({"ok": is_running(port), "port": port, "token": cfg["token"]})
         elif cmd == "restart":                 # 擴充功能更新後，把還在跑的舊版助手換成新版
             if is_running(port) and not stop_helper(port, cfg["token"]):
-                send_msg({"ok": False, "error": "無法結束舊版本機助手，請在系統匣的「中」圖示按右鍵 →「結束」，再重新開啟"})
+                send_msg({"ok": False, "error": "無法結束舊版本機助手，請在系統匣的紅色「T」圖示按右鍵 →「結束」，再重新開啟"})
                 return
             start_helper()
             for _ in range(40):
