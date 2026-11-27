@@ -8,7 +8,7 @@ import secrets
 import sys
 
 APP_NAME = "YT 字幕助手"
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 HELPER_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(HELPER_DIR)
 CONFIG_PATH = os.path.join(HELPER_DIR, "config.json")
@@ -17,7 +17,12 @@ TMP_DIR = os.path.join(HELPER_DIR, "tmp")
 LOG_PATH = os.path.join(HELPER_DIR, "helper.log")
 OWN_MODEL_DIR = os.path.join(HELPER_DIR, "models")
 # 同一台電腦上的 VoiceType（若有）：可共用已下載的語音模型與顯示卡元件
-VOICETYPE_DIR = os.path.join(os.path.dirname(PROJECT_DIR), "VoiceType")
+# 依序找：D:\Claude\desktop\VoiceType（目前位置）→ 舊位置 windowstools\VoiceType → 專案上一層的 VoiceType → 再上一層的 VoiceType
+_VT_CANDS = [os.path.join(os.path.dirname(os.path.dirname(PROJECT_DIR)), "desktop", "VoiceType"),
+             os.path.join(os.path.dirname(os.path.dirname(PROJECT_DIR)), "windowstools", "VoiceType"),
+             os.path.join(os.path.dirname(PROJECT_DIR), "VoiceType"),
+             os.path.join(os.path.dirname(os.path.dirname(PROJECT_DIR)), "VoiceType")]
+VOICETYPE_DIR = next((d for d in _VT_CANDS if os.path.isdir(d)), _VT_CANDS[0])
 
 # 擴充功能的固定 ID（由 manifest.json 裡的 key 決定）；只有它可以呼叫本機助手
 EXTENSION_ID = "bkhhpabcfpnobbkoadaalpagjdcdjmec"

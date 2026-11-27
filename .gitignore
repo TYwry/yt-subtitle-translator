@@ -38,3 +38,6 @@ plan.md
 # ── 暫存 ──
 .commit-message.txt
 *.bundle
+
+# 開發用進度筆記（不上傳）
+進度清單.md

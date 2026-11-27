@@ -31,7 +31,9 @@ if not exist .venv (
 )
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt || exit /b 1
-if exist "..\..\VoiceType\.venv\Lib\site-packages\nvidia\cublas" (
+set "VTNV="
+for %%D in ("..\..\..\desktop\VoiceType" "..\..\..\windowstools\VoiceType" "..\..\VoiceType" "..\..\..\VoiceType") do if not defined VTNV if exist "%%~D\.venv\Lib\site-packages\nvidia\cublas" set "VTNV=1"
+if defined VTNV (
   echo 找到 VoiceType 的顯示卡元件，直接共用，不重複下載。
 ) else (
   echo 安裝 NVIDIA 顯示卡元件（約 1GB）...
